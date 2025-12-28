@@ -21,12 +21,18 @@ A modern, web-based music production environment built with React and Tone.js. T
 
 ## Getting Started
 
-1. **Install Dependencies**
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/SAFAL-TIWARI/loop-station.git
+   cd loop-station
+   ```
+
+2. **Install Dependencies**
    ```bash
    npm install
    ```
 
-2. **Start Development Server**
+3. **Start Development Server**
    ```bash
    npm run dev
    ```
