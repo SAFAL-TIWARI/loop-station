@@ -7,11 +7,12 @@ interface TransportControlsProps {
   onPlayPause: () => void;
   onStop: () => void;
   onReset: () => void;
+  bpm: number;
+  onBpmChange: (bpm: number) => void;
 }
 
-export function TransportControls({ isPlaying, onPlayPause, onStop, onReset }: TransportControlsProps) {
-  const [bpm, setBpm] = useState(120);
-  const [volume, setVolume] = useState(-10);
+export function TransportControls({ isPlaying, onPlayPause, onStop, onReset, bpm, onBpmChange }: TransportControlsProps) {
+  const [volume, setVolume] = useState(0);
 
   useEffect(() => {
     Tone.Destination.volume.value = volume;
@@ -60,7 +61,7 @@ export function TransportControls({ isPlaying, onPlayPause, onStop, onReset }: T
               min="60"
               max="180"
               value={bpm}
-              onChange={(e) => setBpm(Number(e.target.value))}
+              onChange={(e) => onBpmChange(Number(e.target.value))}
               className="w-32 md:w-32"
             />
             <input
@@ -68,7 +69,7 @@ export function TransportControls({ isPlaying, onPlayPause, onStop, onReset }: T
               min="60"
               max="180"
               value={bpm}
-              onChange={(e) => setBpm(Math.min(180, Math.max(60, Number(e.target.value))))}
+              onChange={(e) => onBpmChange(Math.min(180, Math.max(60, Number(e.target.value))))}
               className="w-16 bg-gray-800 text-white px-2 py-1 rounded text-center"
             />
           </label>

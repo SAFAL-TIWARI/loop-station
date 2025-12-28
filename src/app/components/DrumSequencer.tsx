@@ -1,11 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import * as Tone from 'tone';
 import { Volume2 } from 'lucide-react';
+import { TrackEffects, EffectConfig } from '../types';
 
 interface DrumSequencerProps {
   isPlaying: boolean;
   pattern: boolean[][];
   onPatternChange: (pattern: boolean[][]) => void;
+  drumTypes: string[];
+  onDrumTypeChange: (types: string[]) => void;
+  effects?: TrackEffects;
 }
 
 export const DRUMS = [
@@ -21,39 +25,181 @@ export const DRUMS = [
   { name: 'Shaker', color: 'bg-teal-500' },
 ];
 
+export const DRUM_VARIANTS = {
+  Kick: ['Modern', '808', 'Acoustic', 'Distorted'],
+  Snare: ['Modern', '808', 'Trap', 'Rim'],
+  'Hi-Hat': ['Closed', 'Open', 'Trap', 'Shaker'],
+  Clap: ['Modern', '808', 'Snap', 'Digital'],
+  Tom: ['Modern', '808', 'Electronic', 'Floor'],
+  Rim: ['Wood', 'Metal', 'Click', 'Ping'],
+  Crash: ['Modern', '808', 'Ride', 'Splash'],
+  Ride: ['Bell', 'Ping', 'Clean', 'Dark'],
+  Cowbell: ['808', 'Real', 'Digital', 'Clank'],
+  Shaker: ['Modern', 'Maraca', 'Egg', 'Noise'],
+};
+
 export const STEPS = 16;
 
-export function DrumSequencer({ isPlaying, pattern, onPatternChange }: DrumSequencerProps) {
+export function DrumSequencer({ isPlaying, pattern, onPatternChange, drumTypes, onDrumTypeChange, effects = {} }: DrumSequencerProps) {
   const [currentStep, setCurrentStep] = useState(-1);
-  const [synths, setSynths] = useState<Tone.MembraneSynth[] | null>(null);
+  const [synths, setSynths] = useState<any[] | null>(null);
+  const synthOutputsRef = useRef<(Tone.Gain | null)[]>([]); // Output nodes for each synth
+  const effectChainsRef = useRef<(Tone.ToneAudioNode[])[]>([]); // Effect chains for each track (array of arrays)
+
   const [activeTracks, setActiveTracks] = useState<boolean[]>(
     Array(DRUMS.length).fill(true)
   );
   const [volumes, setVolumes] = useState<number[]>(
-    Array(DRUMS.length).fill(-10)
+    Array(DRUMS.length).fill(0)
   );
 
-  useEffect(() => {
-    // Initialize drum synths
-    const drumSynths = [
-      new Tone.MembraneSynth({ octaves: 2, pitchDecay: 0.05 }).toDestination(), // Kick
-      new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 2 }).toDestination(), // Snare
-      new Tone.MetalSynth({ frequency: 200, envelope: { decay: 0.1 } }).toDestination(), // Hi-Hat
-      new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { decay: 0.1 } }).toDestination(), // Clap
-      new Tone.MembraneSynth({ octaves: 4, pitchDecay: 0.08 }).toDestination(), // Tom
-      new Tone.MetalSynth({ frequency: 400, envelope: { decay: 0.05 } }).toDestination(), // Rim
-      new Tone.MetalSynth({ frequency: 150, envelope: { decay: 2, release: 3 } }).toDestination(), // Crash
-      new Tone.MetalSynth({ frequency: 800, envelope: { decay: 0.5 } }).toDestination(), // Ride
-      new Tone.MetalSynth({ frequency: 540, envelope: { decay: 0.2 } }).toDestination(), // Cowbell
-      new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.005, decay: 0.05 } }).toDestination(), // Shaker
-    ];
+  // cleanup helper
+  const cleanupEffects = (index: number) => {
+    if (effectChainsRef.current[index]) {
+      effectChainsRef.current[index].forEach(node => {
+        if (!node.disposed) {
+          node.disconnect();
+          node.dispose();
+        }
+      });
+      effectChainsRef.current[index] = [];
+    }
+  };
 
-    setSynths(drumSynths as any);
+  useEffect(() => {
+    // Initialize drum synths based on types
+    const createSynth = (drumIndex: number, type: string) => {
+      const drumName = DRUMS[drumIndex].name;
+      const outputGain = new Tone.Gain(1);
+
+      // Store output gain
+      if (!synthOutputsRef.current[drumIndex]) {
+        synthOutputsRef.current[drumIndex] = outputGain;
+      } else {
+        // If recreating, reuse the existing gain node if possible or dispose old?
+        // Actually, creating new synth means connecting to output.
+        // Let's dispose old output if we are fully re-initializing? 
+        // But this runs on drumTypes change.
+        // Better to keep outputGain stable if possible, but simpler to recreate.
+        synthOutputsRef.current[drumIndex]?.dispose();
+        synthOutputsRef.current[drumIndex] = outputGain;
+      }
+
+      let instr: any;
+
+      switch (drumName) {
+        case 'Kick':
+          if (type === '808') instr = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 4, oscillator: { type: "sine" }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4 } });
+          else if (type === 'Acoustic') instr = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 2, oscillator: { type: "sine" } });
+          else if (type === 'Distorted') instr = new Tone.MembraneSynth({ pitchDecay: 0.08, octaves: 2.5 });
+          else instr = new Tone.MembraneSynth({ octaves: 2, pitchDecay: 0.05 });
+          break;
+
+        case 'Snare':
+          if (type === '808') instr = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { decay: 0.2 } });
+          else if (type === 'Trap') instr = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { decay: 0.15 } });
+          else if (type === 'Rim') instr = new Tone.MetalSynth({ frequency: 200, envelope: { decay: 0.05 } });
+          else instr = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 2 });
+          break;
+
+        case 'Hi-Hat':
+          if (type === 'Trap') instr = new Tone.MetalSynth({ frequency: 400, envelope: { decay: 0.05 }, harmonicity: 5.1, modulationIndex: 32 });
+          else instr = new Tone.MetalSynth({ frequency: 200, envelope: { decay: 0.1 } });
+          break;
+
+        case 'Clap':
+          instr = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { decay: 0.1 } });
+          break;
+
+        case 'Tom':
+          if (type === '808') instr = new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 2 });
+          else instr = new Tone.MembraneSynth({ octaves: 4, pitchDecay: 0.08 });
+          break;
+
+        default:
+          if (drumName === 'Rim') instr = new Tone.MetalSynth({ frequency: 400, envelope: { decay: 0.05 } });
+          else if (drumName === 'Crash') instr = new Tone.MetalSynth({ frequency: 150, envelope: { decay: 2, release: 3 } });
+          else if (drumName === 'Ride') instr = new Tone.MetalSynth({ frequency: 800, envelope: { decay: 0.5 } });
+          else if (drumName === 'Cowbell') instr = new Tone.MetalSynth({ frequency: 540, envelope: { decay: 0.2 } });
+          else if (drumName === 'Shaker') instr = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.005, decay: 0.05 } });
+          else instr = new Tone.MembraneSynth();
+          break;
+      }
+
+      instr.connect(outputGain);
+      // Default connect output to destination (will be handled by effect chain logic generally, but init here)
+      outputGain.toDestination();
+
+      return instr;
+    };
+
+    const drumSynths = DRUMS.map((_, i) => createSynth(i, drumTypes[i]));
+
+    setSynths(drumSynths);
 
     return () => {
       drumSynths.forEach(synth => synth.dispose());
+      synthOutputsRef.current.forEach(g => g?.dispose());
     };
-  }, []);
+  }, [drumTypes]);
+
+  // Apply Effects
+  useEffect(() => {
+    if (!synths) return;
+
+    DRUMS.forEach((_, index) => {
+      const trackEffectsList = effects[`drum-${index}`] || [];
+      const outputGain = synthOutputsRef.current[index];
+
+      if (!outputGain) return;
+
+      // Cleanup old chain
+      cleanupEffects(index);
+
+      // Disconnect from destination to insert effects
+      try { outputGain.disconnect(); } catch (e) { }
+
+      const newChain: Tone.ToneAudioNode[] = [];
+
+      trackEffectsList.forEach(effect => {
+        if (!effect.enabled) return;
+        try {
+          let node: Tone.ToneAudioNode | null = null;
+          switch (effect.type) {
+            case 'Reverb': node = new Tone.Reverb({ decay: 1.5, wet: 0.3 }); break;
+            case 'Delay': node = new Tone.FeedbackDelay("8n", 0.3); break;
+            case 'Distortion': node = new Tone.Distortion(0.4); break;
+            case 'BitCrusher': node = new Tone.BitCrusher(4); break;
+            case 'Chorus': node = new Tone.Chorus(4, 2.5, 0.5).start(); break;
+            case 'Echo': node = new Tone.PingPongDelay("8n", 0.2); break;
+            case 'Flanger': node = new Tone.Phaser({ frequency: 15, octaves: 5, baseFrequency: 1000 }); break;
+            case 'Limiter': node = new Tone.Limiter(-10); break;
+            case 'Pitch': node = new Tone.PitchShift(7); break;
+            case 'Soft Clipper': node = new Tone.Chebyshev(2); break;
+            case 'Stereo Width': node = new Tone.StereoWidener(0.8); break;
+            case 'Compressor': node = new Tone.Compressor(-30, 3); break;
+            case 'EQ': node = new Tone.EQ3(0, -6, 0); break;
+          }
+          if (node) newChain.push(node);
+        } catch (e) { console.error(e); }
+      });
+
+      // Connect Chain
+      if (newChain.length > 0) {
+        outputGain.connect(newChain[0]);
+        for (let i = 0; i < newChain.length - 1; i++) {
+          newChain[i].connect(newChain[i + 1]);
+        }
+        newChain[newChain.length - 1].toDestination();
+      } else {
+        outputGain.toDestination();
+      }
+
+      effectChainsRef.current[index] = newChain;
+    });
+
+  }, [effects, synths]);
+
 
   useEffect(() => {
     if (!isPlaying || !synths) {
@@ -67,36 +213,30 @@ export function DrumSequencer({ isPlaying, pattern, onPatternChange }: DrumSeque
 
         pattern.forEach((row, drumIndex) => {
           if (row[step] && activeTracks[drumIndex]) {
+            const synth = synths[drumIndex];
+
+            // Trigger logic based on drum index (can be refined to be based on synth type)
             if (drumIndex === 0) {
               // Kick
-              (synths[0] as Tone.MembraneSynth).triggerAttackRelease('C1', '8n', time);
+              (synth as Tone.MembraneSynth).triggerAttackRelease('C1', '8n', time);
             } else if (drumIndex === 1) {
               // Snare
-              (synths[1] as Tone.MembraneSynth).triggerAttackRelease('C2', '8n', time);
-            } else if (drumIndex === 2) {
-              // Hi-Hat
-              (synths[2] as any).triggerAttackRelease('16n', time);
-            } else if (drumIndex === 3) {
-              // Clap
-              (synths[3] as any).triggerAttackRelease('8n', time);
+              if (synth instanceof Tone.NoiseSynth) {
+                synth.triggerAttackRelease('8n', time);
+              } else {
+                (synth as Tone.MembraneSynth).triggerAttackRelease('C2', '8n', time);
+              }
             } else if (drumIndex === 4) {
               // Tom
-              (synths[4] as Tone.MembraneSynth).triggerAttackRelease('C3', '8n', time);
-            } else if (drumIndex === 5) {
-              // Rim
-              (synths[5] as Tone.MetalSynth).triggerAttackRelease('C4', '8n', time);
-            } else if (drumIndex === 6) {
-              // Crash
-              (synths[6] as Tone.MetalSynth).triggerAttackRelease('16n', time);
-            } else if (drumIndex === 7) {
-              // Ride
-              (synths[7] as Tone.MetalSynth).triggerAttackRelease('16n', time);
-            } else if (drumIndex === 8) {
-              // Cowbell
-              (synths[8] as Tone.MetalSynth).triggerAttackRelease('16n', time);
-            } else if (drumIndex === 9) {
-              // Shaker
-              (synths[9] as Tone.NoiseSynth).triggerAttackRelease('16n', time);
+              (synth as Tone.MembraneSynth).triggerAttackRelease('C3', '8n', time);
+            } else if (drumIndex === 5 || drumIndex === 6 || drumIndex === 7 || drumIndex === 8) {
+              // Metals
+              // @ts-ignore
+              synth.triggerAttackRelease('16n', time);
+            } else {
+              // Noise/Others
+              // @ts-ignore
+              synth.triggerAttackRelease('16n', time);
             }
           }
         });
@@ -135,7 +275,22 @@ export function DrumSequencer({ isPlaying, pattern, onPatternChange }: DrumSeque
       <div className="space-y-2">
         {DRUMS.map((drum, drumIndex) => (
           <div key={drum.name} className="flex items-center gap-2">
-            <div className="w-16 text-white text-sm">{drum.name}</div>
+            <div className="flex flex-col w-20">
+              <div className="text-white text-sm font-bold">{drum.name}</div>
+              <select
+                value={drumTypes[drumIndex] || 'Modern'}
+                onChange={(e) => {
+                  const newTypes = [...drumTypes];
+                  newTypes[drumIndex] = e.target.value;
+                  onDrumTypeChange(newTypes);
+                }}
+                className="text-[10px] bg-gray-800 text-gray-300 rounded border-none outline-none p-0.5 mt-0.5 cursor-pointer max-w-full"
+              >
+                {(DRUM_VARIANTS[drum.name as keyof typeof DRUM_VARIANTS] || ['Modern']).map(v => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
             <input
               type="checkbox"
               checked={activeTracks[drumIndex]}
