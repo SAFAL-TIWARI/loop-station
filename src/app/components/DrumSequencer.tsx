@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import * as Tone from 'tone';
-import { Volume2 } from 'lucide-react';
+import { Volume2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { TrackEffects, EffectConfig } from '../types';
+import { SplineScene } from './SplineScene';
 
 interface DrumSequencerProps {
   isPlaying: boolean;
@@ -43,6 +44,7 @@ export const STEPS = 16;
 export function DrumSequencer({ isPlaying, pattern, onPatternChange, drumTypes, onDrumTypeChange, effects = {} }: DrumSequencerProps) {
   const [currentStep, setCurrentStep] = useState(-1);
   const [synths, setSynths] = useState<any[] | null>(null);
+  const [activeView, setActiveView] = useState<'sequencer' | 'spline'>('sequencer');
   const synthOutputsRef = useRef<(Tone.Gain | null)[]>([]); // Output nodes for each synth
   const effectChainsRef = useRef<(Tone.ToneAudioNode[])[]>([]); // Effect chains for each track (array of arrays)
 
@@ -269,78 +271,120 @@ export function DrumSequencer({ isPlaying, pattern, onPatternChange, drumTypes, 
     }
   };
 
+  // No need for global scroll lock or container ref here as iframe handles its own events now.
+
   return (
     <div className="bg-gray-900 rounded-lg p-6">
-      <h2 className="text-white mb-4">Drum Sequencer</h2>
-      <div className="space-y-2">
-        {DRUMS.map((drum, drumIndex) => (
-          <div key={drum.name} className="flex items-center gap-2">
-            <div className="flex flex-col w-20">
-              <div className="text-white text-sm font-bold">{drum.name}</div>
-              <select
-                value={drumTypes[drumIndex] || 'Modern'}
-                onChange={(e) => {
-                  const newTypes = [...drumTypes];
-                  newTypes[drumIndex] = e.target.value;
-                  onDrumTypeChange(newTypes);
+      <div className="flex items-center gap-4 mb-4">
+        <h2 className="text-white">Drum Sequencer</h2>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setActiveView(prev => prev === 'sequencer' ? 'spline' : 'sequencer')}
+            className="p-1 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition-colors"
+            title={activeView === 'sequencer' ? "Switch to 3D View" : "Switch to Sequencer"}
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <button
+            onClick={() => setActiveView(prev => prev === 'sequencer' ? 'spline' : 'sequencer')}
+            className="p-1 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition-colors"
+            title={activeView === 'sequencer' ? "Switch to 3D View" : "Switch to Sequencer"}
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+      </div>
+
+      <div className={activeView === 'sequencer' ? '' : 'hidden'}>
+        <div className="space-y-2">
+          {DRUMS.map((drum, drumIndex) => (
+            <div key={drum.name} className="flex items-center gap-2">
+              <div className="flex flex-col w-20">
+                <div className="text-white text-sm font-bold">{drum.name}</div>
+                <select
+                  value={drumTypes[drumIndex] || 'Modern'}
+                  onChange={(e) => {
+                    const newTypes = [...drumTypes];
+                    newTypes[drumIndex] = e.target.value;
+                    onDrumTypeChange(newTypes);
+                  }}
+                  className="text-[10px] bg-gray-800 text-gray-300 rounded border-none outline-none p-0.5 mt-0.5 cursor-pointer max-w-full"
+                >
+                  {(DRUM_VARIANTS[drum.name as keyof typeof DRUM_VARIANTS] || ['Modern']).map(v => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              </div>
+              <input
+                type="checkbox"
+                checked={activeTracks[drumIndex]}
+                onChange={() => {
+                  const newActive = [...activeTracks];
+                  newActive[drumIndex] = !newActive[drumIndex];
+                  setActiveTracks(newActive);
                 }}
-                className="text-[10px] bg-gray-800 text-gray-300 rounded border-none outline-none p-0.5 mt-0.5 cursor-pointer max-w-full"
-              >
-                {(DRUM_VARIANTS[drum.name as keyof typeof DRUM_VARIANTS] || ['Modern']).map(v => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-            </div>
-            <input
-              type="checkbox"
-              checked={activeTracks[drumIndex]}
-              onChange={() => {
-                const newActive = [...activeTracks];
-                newActive[drumIndex] = !newActive[drumIndex];
-                setActiveTracks(newActive);
-              }}
-              className="w-4 h-4 accent-green-500 cursor-pointer"
-              title="Toggle Instrument"
-            />
-            <div className="flex gap-1 overflow-x-auto pb-2 md:pb-0 min-w-0 flex-1 hide-scrollbar">
-              <div className="flex gap-1 min-w-max">
-                {pattern[drumIndex].map((active, stepIndex) => (
-                  <button
-                    key={stepIndex}
-                    onClick={() => toggleStep(drumIndex, stepIndex)}
-                    className={`
-                      w-8 h-8 rounded transition-all shrink-0
-                      ${active ? drum.color : 'bg-gray-700'}
-                      ${currentStep === stepIndex ? 'ring-2 ring-white scale-110' : ''}
-                      ${stepIndex % 4 === 0 ? 'ml-1' : ''}
-                      hover:opacity-80
-                    `}
-                  />
-                ))}
+                className="w-4 h-4 accent-green-500 cursor-pointer"
+                title="Toggle Instrument"
+              />
+              <div className="flex gap-1 overflow-x-auto pb-2 md:pb-0 min-w-0 flex-1 hide-scrollbar">
+                <div className="flex gap-1 min-w-max">
+                  {pattern[drumIndex].map((active, stepIndex) => (
+                    <button
+                      key={stepIndex}
+                      onClick={() => toggleStep(drumIndex, stepIndex)}
+                      className={`
+                        w-8 h-8 rounded transition-all shrink-0
+                        ${active ? drum.color : 'bg-gray-700'}
+                        ${currentStep === stepIndex ? 'ring-2 ring-white scale-110' : ''}
+                        ${stepIndex % 4 === 0 ? 'ml-1' : ''}
+                        hover:opacity-80
+                      `}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 ml-2">
+                <input
+                  type="range"
+                  min="-60"
+                  max="0"
+                  value={volumes[drumIndex]}
+                  onChange={(e) => handleVolumeChange(drumIndex, Number(e.target.value))}
+                  className="w-16 md:w-24 accent-gray-500"
+                  title="Volume"
+                />
+                <input
+                  type="number"
+                  min="-60"
+                  max="0"
+                  value={volumes[drumIndex]}
+                  onChange={(e) => handleVolumeChange(drumIndex, Math.min(0, Math.max(-60, Number(e.target.value))))}
+                  className="w-12 bg-gray-800 text-white px-1 py-0.5 rounded text-center text-xs"
+                />
               </div>
             </div>
+          ))}
+        </div>
+      </div>
 
-            <div className="flex items-center gap-2 ml-2">
-              <input
-                type="range"
-                min="-60"
-                max="0"
-                value={volumes[drumIndex]}
-                onChange={(e) => handleVolumeChange(drumIndex, Number(e.target.value))}
-                className="w-16 md:w-24 accent-gray-500"
-                title="Volume"
-              />
-              <input
-                type="number"
-                min="-60"
-                max="0"
-                value={volumes[drumIndex]}
-                onChange={(e) => handleVolumeChange(drumIndex, Math.min(0, Math.max(-60, Number(e.target.value))))}
-                className="w-12 bg-gray-800 text-white px-1 py-0.5 rounded text-center text-xs"
-              />
-            </div>
-          </div>
-        ))}
+      <div
+        className="w-full h-[600px] border border-gray-800 rounded-lg overflow-hidden relative"
+        style={{
+          visibility: activeView === 'spline' ? 'visible' : 'hidden',
+          display: activeView === 'spline' ? 'block' : 'block', // Always block
+          position: activeView === 'spline' ? 'relative' : 'absolute',
+          left: activeView === 'spline' ? 'auto' : '-9999px',
+          height: activeView === 'spline' ? '600px' : '0px' // Collapse height when hidden offscreen
+        }}
+      >
+        <SplineScene
+          pattern={pattern}
+          onPatternChange={onPatternChange}
+          currentStep={currentStep}
+          isPlaying={isPlaying}
+          isInteractable={activeView === 'spline'}
+        />
       </div>
     </div>
   );

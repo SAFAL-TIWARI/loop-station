@@ -5,6 +5,7 @@ import { Synthesizer } from './components/Synthesizer';
 import { TransportControls } from './components/TransportControls';
 import { PresetControls, Preset } from './components/PresetControls';
 import { Timeline } from './components/Timeline';
+// SplineScene removed from here, now in DrumSequencer
 import { SynthPattern, TrackEffects, EffectConfig } from './types';
 import useUndoRedo from './hooks/useUndoRedo';
 
@@ -193,7 +194,9 @@ export default function App() {
           setIsPlaying(false);
           break;
         case 'r':
-          handleReset();
+          if (e.shiftKey) {
+            handleReset();
+          }
           break;
       }
     };
